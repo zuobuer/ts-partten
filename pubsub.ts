@@ -5,8 +5,6 @@
 // 3、订阅者需要手动的订阅一个事件，但是不是必须的
 // 4、发布者只负责emit，而订阅者只负责on
 
-// 未全部完成，需要取消订阅
-
 abstract class Publisher {
     abstract emit: (type: string, ...args) => void;
 }
@@ -21,38 +19,77 @@ class EventPublisher implements Publisher {
 
 }
 
+interface EventItem {
+    token: number;
+    handler: (...args) => void;
+}
+
 // 不同的事件类型，可以存放多个事件处理函数
 class Channel {
     private channels: {
-        [type: string]: Array<() => void>;
+        [type: string]: Array<EventItem>;
     }
 
     constructor() {
         this.channels = {};
     }
 
+    getChannels(): {
+        [type: string]: Array<EventItem>;
+    } {
+        return this.channels;
+    }
+
     // 添加事件池
-    add(type: string, handler: (...args) => void) {
+    on(type: string, handler: (...args) => void): Unscriber {
         if (!this.channels[type]) {
             this.channels[type] = [];
         }
-        this.channels[type].push(handler);
+        let token = this.channels[type].length;
+        this.channels[type].push({
+            token: token,
+            handler: handler,
+        });
+        return new Unscriber(this, type, handler)
     }
 
     // 发送事件
     emit(type: string, ...args) {
-        this.channels[type].forEach((handler: (...args)=>void) => {
-            handler(...args);
+        this.channels[type].forEach((item: EventItem) => {
+            item.handler(...args)
         })
+    }
+
+    off(type: string, handler: (...args) => void): boolean {
+        if (!this.channels[type]) {
+            return false;
+        }
+
+        for (let i = 0, l = this.channels[type].length; i < l; ++i) {
+            if (this.channels[type][i].handler === handler) {
+                this.channels[type].splice(i, 1);
+                break;
+            }
+        }
+
+        return true;
+    }
+}
+
+class Unscriber {
+    constructor(private channel: Channel, private type: string, private handler: (...args) => void) { }
+
+    unscribe() {
+        this.channel.off(this.type, this.handler);
     }
 }
 
 class Subcriber {
 
-    constructor(private channel) { }
-    
-    on(type: string, handler: (...args) => void) {
-        this.channel.add(type, handler)
+    constructor(private channel: Channel) { }
+
+    on(type: string, handler: (...args) => void): Unscriber {
+        return this.channel.on(type, handler)
     }
 
 }
@@ -61,9 +98,16 @@ const channel = new Channel();
 const eventPublisher = new EventPublisher(channel);
 const eventSubscriber = new Subcriber(channel);
 
-eventSubscriber.on("click", (...args) => {
+let subscribe = eventSubscriber.on("click", (...args) => {
     console.log("click")
-    console.log(args)
 })
-
-eventPublisher.emit("click", {data: "hello world"}, {data: "hello typescript"});
+console.log(channel.getChannels())
+eventPublisher.emit("click", { data: "hello world" }, { data: "hello typescript" });
+subscribe.unscribe();
+console.log(channel.getChannels())
+eventPublisher.emit("click", { data: "hello world" }, { data: "hello typescript" });
+subscribe = eventSubscriber.on("click", (...args) => {
+    console.log("click")
+})
+console.log(channel.getChannels())
+eventPublisher.emit("click", { data: "hello world" }, { data: "hello typescript" });
